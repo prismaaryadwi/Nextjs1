@@ -1,16 +1,23 @@
-// app/auth/login/page.tsx - FIXED
 'use client';
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useAuth } from '../../contexts/AuthContext'; // FIXED PATH
+import { useAuth } from '../../contexts/AuthContext';
 
 export default function LoginPage(): JSX.Element {
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [localError, setLocalError] = useState<string>('');
-  const { login, isLoading, error: authError } = useAuth();
+  const { login, isLoading, error: authError, user } = useAuth();
   const router = useRouter();
+
+  // Auto redirect jika sudah login
+  useEffect(() => {
+    if (user) {
+      router.push('/');
+      router.refresh();
+    }
+  }, [user, router]);
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
