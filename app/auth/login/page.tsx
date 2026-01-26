@@ -8,30 +8,40 @@ export default function LoginPage(): JSX.Element {
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [localError, setLocalError] = useState<string>('');
+  const [loginSuccess, setLoginSuccess] = useState(false);
   const { login, isLoading, error: authError, user } = useAuth();
   const router = useRouter();
 
   // Auto redirect jika sudah login
   useEffect(() => {
     if (user) {
-      router.push('/');
-      router.refresh();
+      console.log('✅ User detected, redirecting to home...');
+      // Use window.location for reliable redirect
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 100);
     }
-  }, [user, router]);
+  }, [user]);
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
     setLocalError('');
+    setLoginSuccess(false);
     
     if (!email || !password) {
       setLocalError('Email and password are required');
       return;
     }
 
+    console.log('🔄 Login form submitted');
     const success = await login(email, password);
     
     if (success) {
-      router.push('/');
+      console.log('✅ Login function returned success');
+      setLoginSuccess(true);
+      // The useEffect above will handle redirect when user state updates
+    } else {
+      console.log('❌ Login function returned false');
     }
   };
 
@@ -61,6 +71,12 @@ export default function LoginPage(): JSX.Element {
             </p>
           </div>
 
+          {loginSuccess && (
+            <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded mb-6 text-sm">
+              ✅ Login successful! Redirecting...
+            </div>
+          )}
+
           {displayError && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-6 text-sm">
               {displayError}
@@ -79,7 +95,8 @@ export default function LoginPage(): JSX.Element {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="Enter your email address"
                 required
-                className="w-full px-4 py-3 border border-gray-300 rounded-sm focus:ring-1 focus:ring-black focus:border-black transition-all duration-200 outline-none text-gray-900 placeholder-gray-500"
+                disabled={isLoading}
+                className="w-full px-4 py-3 border border-gray-300 rounded-sm focus:ring-1 focus:ring-black focus:border-black transition-all duration-200 outline-none text-gray-900 placeholder-gray-500 disabled:opacity-50"
               />
             </div>
             
@@ -94,7 +111,8 @@ export default function LoginPage(): JSX.Element {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter your password"
                 required
-                className="w-full px-4 py-3 border border-gray-300 rounded-sm focus:ring-1 focus:ring-black focus:border-black transition-all duration-200 outline-none text-gray-900 placeholder-gray-500"
+                disabled={isLoading}
+                className="w-full px-4 py-3 border border-gray-300 rounded-sm focus:ring-1 focus:ring-black focus:border-black transition-all duration-200 outline-none text-gray-900 placeholder-gray-500 disabled:opacity-50"
               />
             </div>
 
@@ -104,7 +122,8 @@ export default function LoginPage(): JSX.Element {
                   id="remember-me"
                   name="remember-me"
                   type="checkbox"
-                  className="h-4 w-4 text-black focus:ring-black border-gray-300 rounded"
+                  disabled={isLoading}
+                  className="h-4 w-4 text-black focus:ring-black border-gray-300 rounded disabled:opacity-50"
                 />
                 <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-700">
                   Remember me
@@ -113,7 +132,7 @@ export default function LoginPage(): JSX.Element {
 
               <Link 
                 href="/auth/forgot-password" 
-                className="text-sm text-blue-600 hover:text-blue-800 transition-colors duration-200"
+                className="text-sm text-blue-600 hover:text-blue-800 transition-colors duration-200 disabled:opacity-50"
               >
                 Forgot password?
               </Link>

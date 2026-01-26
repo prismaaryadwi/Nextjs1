@@ -1,5 +1,5 @@
 'use client';
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '../../contexts/AuthContext';
@@ -10,12 +10,14 @@ export default function RegisterPage(): JSX.Element {
   const [password, setPassword] = useState<string>('');
   const [confirmPassword, setConfirmPassword] = useState<string>('');
   const [localError, setLocalError] = useState<string>('');
+  const [showSuccess, setShowSuccess] = useState(false);
   const { register, isLoading, error: authError } = useAuth();
   const router = useRouter();
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
     setLocalError('');
+    setShowSuccess(false);
     
     // Client-side validation
     if (password !== confirmPassword) {
@@ -36,8 +38,12 @@ export default function RegisterPage(): JSX.Element {
     const success = await register(username, email, password);
     
     if (success) {
-      alert('Account created successfully! Please login.');
-      router.push('/auth/login');
+      // Show success message for 2 seconds before redirect
+      setShowSuccess(true);
+      
+      setTimeout(() => {
+        router.push('/auth/login');
+      }, 2000);
     }
   };
 
@@ -67,6 +73,12 @@ export default function RegisterPage(): JSX.Element {
             </p>
           </div>
 
+          {showSuccess && (
+            <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded mb-6 text-sm">
+              ✅ Account created successfully! Redirecting to login page...
+            </div>
+          )}
+
           {displayError && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-6 text-sm">
               {displayError}
@@ -86,7 +98,8 @@ export default function RegisterPage(): JSX.Element {
                 placeholder="Choose a username"
                 required
                 minLength={3}
-                className="w-full px-4 py-3 border border-gray-300 rounded-sm focus:ring-1 focus:ring-black focus:border-black transition-all duration-200 outline-none text-gray-900 placeholder-gray-500"
+                disabled={isLoading}
+                className="w-full px-4 py-3 border border-gray-300 rounded-sm focus:ring-1 focus:ring-black focus:border-black transition-all duration-200 outline-none text-gray-900 placeholder-gray-500 disabled:opacity-50"
               />
             </div>
 
@@ -101,7 +114,8 @@ export default function RegisterPage(): JSX.Element {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="Enter your email address"
                 required
-                className="w-full px-4 py-3 border border-gray-300 rounded-sm focus:ring-1 focus:ring-black focus:border-black transition-all duration-200 outline-none text-gray-900 placeholder-gray-500"
+                disabled={isLoading}
+                className="w-full px-4 py-3 border border-gray-300 rounded-sm focus:ring-1 focus:ring-black focus:border-black transition-all duration-200 outline-none text-gray-900 placeholder-gray-500 disabled:opacity-50"
               />
             </div>
             
@@ -117,7 +131,8 @@ export default function RegisterPage(): JSX.Element {
                 placeholder="Create a password (min. 6 characters)"
                 required
                 minLength={6}
-                className="w-full px-4 py-3 border border-gray-300 rounded-sm focus:ring-1 focus:ring-black focus:border-black transition-all duration-200 outline-none text-gray-900 placeholder-gray-500"
+                disabled={isLoading}
+                className="w-full px-4 py-3 border border-gray-300 rounded-sm focus:ring-1 focus:ring-black focus:border-black transition-all duration-200 outline-none text-gray-900 placeholder-gray-500 disabled:opacity-50"
               />
             </div>
 
@@ -133,7 +148,8 @@ export default function RegisterPage(): JSX.Element {
                 placeholder="Confirm your password"
                 required
                 minLength={6}
-                className="w-full px-4 py-3 border border-gray-300 rounded-sm focus:ring-1 focus:ring-black focus:border-black transition-all duration-200 outline-none text-gray-900 placeholder-gray-500"
+                disabled={isLoading}
+                className="w-full px-4 py-3 border border-gray-300 rounded-sm focus:ring-1 focus:ring-black focus:border-black transition-all duration-200 outline-none text-gray-900 placeholder-gray-500 disabled:opacity-50"
               />
             </div>
 
