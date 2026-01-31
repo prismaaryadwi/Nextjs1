@@ -1,3 +1,4 @@
+// app/article/[id]/page.tsx - COMPLETE FIXED VERSION WITH UUID SUPPORT
 "use client";
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
@@ -149,6 +150,7 @@ const ArticleDetailPage: React.FC = () => {
   const [articleId, setArticleId] = useState<string>("");
   const [isStaticArticle, setIsStaticArticle] = useState(false);
   const [staticArticle, setStaticArticle] = useState<any>(null);
+  const [isNotFound, setIsNotFound] = useState(false);
 
   useEffect(() => {
     if (params.id) {
@@ -163,12 +165,12 @@ const ArticleDetailPage: React.FC = () => {
         setStaticArticle(foundArticle || null);
       } else {
         setIsStaticArticle(false);
-        // Try to parse as number for database article
-        const numericId = parseInt(id);
-        if (!isNaN(numericId)) {
-          fetchArticle(numericId).catch(console.error);
-          fetchComments(numericId).catch(console.error);
-        }
+        // FIX: Directly use string ID for UUID
+        fetchArticle(id).catch(error => {
+          console.error('Error fetching article:', error);
+          setIsNotFound(true);
+        });
+        fetchComments(id).catch(console.error);
       }
     }
   }, [params.id]);
@@ -179,10 +181,7 @@ const ArticleDetailPage: React.FC = () => {
       return;
     }
     if (articleId && !isStaticArticle) {
-      const numericId = parseInt(articleId);
-      if (!isNaN(numericId)) {
-        await likeArticle(numericId);
-      }
+      await likeArticle(articleId);
     }
   };
 
@@ -196,14 +195,20 @@ const ArticleDetailPage: React.FC = () => {
     }
 
     setIsSubmitting(true);
-    const numericId = parseInt(articleId);
-    if (!isNaN(numericId)) {
-      const success = await addComment(numericId, commentText);
+    try {
+      const success = await addComment(articleId, commentText);
       if (success) {
         setCommentText("");
+        alert("Comment added successfully!");
+      } else {
+        alert("Failed to add comment");
       }
+    } catch (error) {
+      console.error("Error adding comment:", error);
+      alert("Failed to add comment");
+    } finally {
+      setIsSubmitting(false);
     }
-    setIsSubmitting(false);
   };
 
   const handleLogout = () => {
@@ -271,6 +276,40 @@ const ArticleDetailPage: React.FC = () => {
   // Determine which article to show
   const displayArticle = isStaticArticle ? staticArticle : currentArticle;
   const isLoading = !isStaticArticle && loading && !currentArticle;
+
+  if (isNotFound) {
+    return (
+      <div className={`min-h-screen transition-colors duration-300 flex items-center justify-center ${
+        darkMode ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'
+      }`}>
+        <div className="text-center max-w-md p-8">
+          <div className="text-6xl mb-4">📄</div>
+          <h2 className="text-2xl font-bold mb-4">Article not found</h2>
+          <p className="mb-6">
+            The article with ID "{articleId}" doesn't exist or has been removed.
+          </p>
+          <div className="flex flex-col space-y-4">
+            <Link 
+              href="/" 
+              className="bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:shadow-lg transition-all"
+            >
+              Back to Home
+            </Link>
+            <Link 
+              href="/explore" 
+              className={`px-6 py-3 rounded-lg font-medium transition-all ${
+                darkMode 
+                  ? 'border border-gray-700 text-gray-300 hover:border-gray-600 hover:text-white' 
+                  : 'border border-gray-300 text-gray-700 hover:border-gray-400 hover:text-gray-900'
+              }`}
+            >
+              Browse Articles
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (

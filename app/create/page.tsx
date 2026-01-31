@@ -1,4 +1,4 @@
-// app/create/page.tsx - COMPLETE FIXED VERSION
+// app/create/page.tsx - COMPLETE FIXED VERSION WITH UPLOAD AND PORT 3002
 "use client";
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -31,66 +31,50 @@ const defaultCovers: { [key: string]: string } = {
   'Pantun': '/cover/pantun.jpg'
 };
 
-// API Debug Utility
+// Simple debug function
 const testApiConnection = async () => {
   try {
     console.log('🔍 Testing API connection...');
-    
-    // Test 1: Check if API is running
-    const healthResponse = await fetch('http://localhost:3001/api/health');
-    console.log('🏥 API Health:', healthResponse.status);
-    
-    // Test 2: Check articles endpoint
-    const articlesResponse = await fetch('http://localhost:3001/api/articles?limit=1');
-    const articlesData = await articlesResponse.json();
-    console.log('📚 Articles endpoint:', articlesData.success ? '✅ OK' : '❌ Failed');
-    
-    // Test 3: Check user token
-    const token = localStorage.getItem('token');
-    console.log('🔑 Token exists:', !!token);
-    
-    if (token) {
-      // Test 4: Try to create a test article
-      console.log('🧪 Testing article creation...');
-      
-      const testData = {
-        title: "Test Article from Debug",
-        content: "This is a test article for debugging purposes.",
-        excerpt: "Test article excerpt",
-        category_name: "Opini",
-        author_name: "Debug User",
-        cover_image: "/cover/default.jpg",
-        tags: "test,debug",
-        status: "published"
-      };
-      
-      try {
-        const testResponse = await fetch('http://localhost:3001/api/articles', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify(testData)
-        });
-        
-        const testResult = await testResponse.json();
-        console.log('🧪 Test creation result:', testResult);
-        
-        if (testResult.success) {
-          alert('✅ Test article created successfully!');
-        } else {
-          alert(`❌ Test failed: ${testResult.message}`);
-        }
-      } catch (testError) {
-        console.error('🧪 Test error:', testError);
-        alert('❌ Test connection failed');
-      }
-    }
-    
+    const response = await fetch('http://localhost:3002/api/health'); // ⚡ PORT 3002 ⚡
+    const data = await response.json();
+    console.log('🏥 API Health:', data);
+    alert(`API Status: ${data.message}`);
   } catch (error) {
     console.error('🔧 Debug error:', error);
-    alert('❌ Debug failed: ' + error);
+    alert('❌ API connection failed');
+  }
+};
+
+// Fungsi upload gambar - FIXED PORT 3002
+const uploadImage = async (file: File): Promise<string | null> => {
+  try {
+    console.log('📤 [UPLOAD] Uploading image:', file.name);
+    
+    const formData = new FormData();
+    formData.append('image', file);
+    
+    const response = await fetch('http://localhost:3002/api/upload/image', { // ⚡ PORT 3002 ⚡
+      method: 'POST',
+      body: formData,
+    });
+    
+    console.log('📤 [UPLOAD] Response status:', response.status);
+    
+    const data = await response.json();
+    console.log('📤 [UPLOAD] Response data:', data);
+    
+    if (data.success && data.url) {
+      console.log('✅ [UPLOAD] Success! URL:', data.url);
+      return data.url;
+    } else {
+      console.error('❌ [UPLOAD] Failed:', data.message);
+      alert('Gagal mengupload gambar: ' + (data.message || 'Unknown error'));
+      return null;
+    }
+  } catch (error: any) {
+    console.error('❌ [UPLOAD] Error:', error);
+    alert('Gagal mengupload gambar: ' + error.message);
+    return null;
   }
 };
 
@@ -107,7 +91,9 @@ export default function CreateArticlePage() {
     category_name: "",
     author_name: "",
     cover_image: "",
-    tags: ""
+    tags: "",
+    status: "pending",
+    imageFile: null as File | null
   });
   
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -120,75 +106,44 @@ export default function CreateArticlePage() {
     setApiLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${message}`]);
   };
 
-  // Validasi real-time
-  const validateField = (name: string, value: string) => {
-    const newErrors = { ...errors };
-    
-    switch (name) {
-      case 'title':
-        if (!value.trim()) {
-          newErrors.title = 'Judul karya harus diisi';
-        } else if (value.length > 200) {
-          newErrors.title = 'Judul maksimal 200 karakter';
-        } else {
-          newErrors.title = '';
-        }
-        break;
-        
-      case 'content':
-        if (!value.trim()) {
-          newErrors.content = 'Konten karya harus diisi';
-        } else if (value.length > 50000) {
-          newErrors.content = 'Konten terlalu panjang (maks. 50,000 karakter)';
-        } else {
-          newErrors.content = '';
-        }
-        break;
-        
-      case 'category_name':
-        if (!value) {
-          newErrors.category_name = 'Kategori wajib dipilih';
-        } else {
-          newErrors.category_name = '';
-        }
-        break;
-
-      case 'excerpt':
-        if (value.length > 300) {
-          newErrors.excerpt = 'Deskripsi singkat maksimal 300 karakter';
-        } else {
-          newErrors.excerpt = '';
-        }
-        break;
-    }
-    
-    setErrors(newErrors);
-  };
-
+  // Handle input change
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
-    validateField(name, value);
+    
+    // Clear error when user starts typing
+    if (errors[name]) {
+      setErrors(prev => ({ ...prev, [name]: '' }));
+    }
   };
 
   // Handle category change - set default cover
   const handleCategoryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const category = e.target.value;
+    const defaultCover = defaultCovers[category] || '/cover/default.jpg';
+    
     setFormData(prev => ({ 
       ...prev, 
       category_name: category,
-      cover_image: defaultCovers[category] || '/cover/default.jpg'
+      cover_image: defaultCover
     }));
-    validateField('category_name', category);
+    
+    // Set preview image
+    setImagePreview(defaultCover);
+    
+    // Clear category error
+    if (errors.category_name) {
+      setErrors(prev => ({ ...prev, category_name: '' }));
+    }
   };
 
-  // Handle image upload yang SIMPLE dan EFISIEN
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle image upload
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       // Validasi ukuran file
-      if (file.size > 2 * 1024 * 1024) {
-        setErrors(prev => ({ ...prev, cover_image: 'Ukuran file maksimal 2MB' }));
+      if (file.size > 5 * 1024 * 1024) {
+        setErrors(prev => ({ ...prev, cover_image: 'Ukuran file maksimal 5MB' }));
         return;
       }
 
@@ -201,21 +156,22 @@ export default function CreateArticlePage() {
       // Clear error
       setErrors(prev => ({ ...prev, cover_image: '' }));
 
-      // Buat preview menggunakan URL.createObjectURL (LEBIH CEPAT)
+      // Buat preview
       const objectUrl = URL.createObjectURL(file);
       setImagePreview(objectUrl);
 
-      // Untuk sekarang, kita simpan path sementara
+      // SIMPAN FILE untuk diupload nanti
       setFormData(prev => ({ 
         ...prev, 
-        cover_image: `/uploads/${Date.now()}_${file.name}` // Path sementara
+        imageFile: file // Simpan file untuk diupload
       }));
 
       addLog(`🖼️ Gambar dipilih: ${file.name} (${Math.round(file.size / 1024)}KB)`);
+      addLog('ℹ️ Gambar akan diupload saat submit');
     }
   };
 
-  // Validasi form sebelum submit
+  // Validasi form
   const validateForm = (): boolean => {
     const newErrors: {[key: string]: string} = {};
 
@@ -239,7 +195,7 @@ export default function CreateArticlePage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  // Handle submit yang ROBUST
+  // Handle submit yang SIMPLE dan EFFECTIVE - FIXED VERSION
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSuccessMessage("");
@@ -250,58 +206,65 @@ export default function CreateArticlePage() {
       return;
     }
 
+    if (!user) {
+      alert('Silakan login terlebih dahulu');
+      router.push('/auth/login');
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       addLog('🚀 Memulai proses submit artikel...');
 
-      // Siapkan data untuk dikirim - HARUS sesuai dengan struktur database
+      // UPLOAD GAMBAR JIKA ADA
+      let finalCoverImage = formData.cover_image;
+      
+      if (formData.imageFile) {
+        addLog('🖼️ Mengupload gambar cover...');
+        const uploadedUrl = await uploadImage(formData.imageFile);
+        if (uploadedUrl) {
+          finalCoverImage = uploadedUrl;
+          addLog(`✅ Gambar berhasil diupload: ${uploadedUrl}`);
+        } else {
+          addLog('⚠️ Upload gambar gagal, menggunakan gambar default');
+          finalCoverImage = defaultCovers[formData.category_name] || '/cover/default.jpg';
+        }
+      } else if (!formData.cover_image || formData.cover_image === '') {
+        // Jika tidak ada gambar yang diupload dan tidak ada URL, gunakan default
+        finalCoverImage = defaultCovers[formData.category_name] || '/cover/default.jpg';
+      }
+
+      // Siapkan data
       const articleData = {
         title: formData.title.trim(),
         content: formData.content,
         excerpt: formData.excerpt.trim() || formData.content.substring(0, 150) + '...',
         category_name: formData.category_name,
-        author_name: formData.author_name.trim() || user?.username,
-        cover_image: formData.cover_image || defaultCovers[formData.category_name] || '/cover/default.jpg',
-        tags: formData.tags,
-        status: user?.role === 'admin' ? 'published' : 'pending'
+        author_name: formData.author_name.trim() || user.username,
+        cover_image: finalCoverImage,
+        tags: formData.tags || '',
+        status: user?.role === 'admin' ? 'published' : 'pending', // INI PENTING!
+        featured: false,
+        imageFile: formData.imageFile // Kirim file untuk diupload di context
       };
 
-      addLog(`📦 Menyiapkan data: ${articleData.title}`);
-      addLog(`📊 Kategori: ${articleData.category_name}`);
-      addLog(`👤 Penulis: ${articleData.author_name}`);
+      addLog(`📦 Data artikel siap dikirim`);
+      addLog(`📝 Judul: ${articleData.title}`);
+      addLog(`📁 Kategori: ${articleData.category_name}`);
+      addLog(`🖼️ Cover: ${articleData.cover_image}`);
+      addLog(`👤 Role: ${user.role}`);
+      addLog(`📊 Status: ${articleData.status}`);
 
-      // Debug token
-      const token = localStorage.getItem('token');
-      addLog(`🔑 Token tersedia: ${!!token}`);
+      // Gunakan createArticle dari context
+      const success = await createArticle(articleData);
       
-      if (!token) {
-        throw new Error('Token tidak ditemukan. Silakan login ulang.');
-      }
-
-      // Coba langsung fetch ke API untuk debugging
-      addLog('🔄 Mengirim ke API...');
-      
-      const response = await fetch('http://localhost:3001/api/articles', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(articleData)
-      });
-
-      addLog(`📡 Response status: ${response.status}`);
-      
-      const data = await response.json();
-      addLog(`📦 API Response: ${JSON.stringify(data)}`);
-
-      if (data.success) {
+      if (success) {
         const message = user?.role === 'admin' 
           ? '🎉 Karya berhasil dipublikasikan!' 
           : '📝 Karya berhasil diajukan! Menunggu persetujuan admin.';
         
         setSuccessMessage(message);
-        addLog('✅ Artikel berhasil dibuat!');
+        addLog(`✅ ${message}`);
         
         // Reset form
         setFormData({
@@ -311,24 +274,29 @@ export default function CreateArticlePage() {
           category_name: "",
           author_name: "",
           cover_image: "",
-          tags: ""
+          tags: "",
+          status: "pending",
+          imageFile: null
         });
         setImagePreview("");
 
         // Redirect setelah 3 detik
         setTimeout(() => {
-          router.push(user?.role === 'admin' ? '/admin/dashboard' : '/profile');
+          if (user?.role === 'admin') {
+            router.push('/admin/dashboard');
+          } else {
+            router.push('/profile');
+          }
         }, 3000);
 
       } else {
-        addLog(`❌ API Error: ${data.message}`);
-        throw new Error(`Gagal mempublikasikan karya: ${data.message}`);
+        throw new Error('Gagal membuat artikel');
       }
       
     } catch (error: any) {
       console.error('❌ Error creating article:', error);
       addLog(`❌ Error: ${error.message}`);
-      alert(`❌ ${error.message}`);
+      alert(`❌ ${error.message || 'Gagal membuat artikel'}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -337,12 +305,13 @@ export default function CreateArticlePage() {
   // Cleanup object URL
   useEffect(() => {
     return () => {
-      if (imagePreview) {
+      if (imagePreview && imagePreview.startsWith('blob:')) {
         URL.revokeObjectURL(imagePreview);
       }
     };
   }, [imagePreview]);
 
+  // Redirect jika belum login
   if (!user) {
     return (
       <div className={`min-h-screen flex items-center justify-center ${
@@ -435,8 +404,13 @@ export default function CreateArticlePage() {
               }`}>
                 Bagikan kreativitas Anda dengan komunitas SEIJA
                 {user.role !== 'admin' && (
-                  <span className="block text-sm text-yellow-600 mt-2">
+                  <span className="block text-sm text-yellow-600 dark:text-yellow-400 mt-2">
                     * Karya akan ditinjau terlebih dahulu sebelum dipublikasikan
+                  </span>
+                )}
+                {user.role === 'admin' && (
+                  <span className="block text-sm text-green-600 dark:text-green-400 mt-2">
+                    * Sebagai admin, karya Anda akan langsung dipublikasikan
                   </span>
                 )}
               </p>
@@ -571,8 +545,15 @@ export default function CreateArticlePage() {
                     <button
                       type="button"
                       onClick={() => {
+                        if (imagePreview && imagePreview.startsWith('blob:')) {
+                          URL.revokeObjectURL(imagePreview);
+                        }
                         setImagePreview("");
-                        setFormData(prev => ({ ...prev, cover_image: defaultCovers[formData.category_name] || '/cover/default.jpg' }));
+                        setFormData(prev => ({ 
+                          ...prev, 
+                          cover_image: defaultCovers[formData.category_name] || '/cover/default.jpg',
+                          imageFile: null 
+                        }));
                       }}
                       className={`px-4 py-3 rounded-lg border transition-colors ${
                         darkMode 
@@ -588,11 +569,19 @@ export default function CreateArticlePage() {
                     <p className="text-red-500 text-sm">{errors.cover_image}</p>
                   )}
                   
-                  <p className={`text-sm ${
-                    darkMode ? 'text-gray-400' : 'text-gray-500'
+                  <div className={`p-3 rounded-lg ${
+                    darkMode ? 'bg-blue-900/20 border border-blue-800' : 'bg-blue-50 border border-blue-200'
                   }`}>
-                    💡 Tips: Unggah gambar cover (maks. 2MB) atau biarkan kosong untuk menggunakan cover default berdasarkan kategori.
-                  </p>
+                    <p className={`text-sm ${
+                      darkMode ? 'text-blue-300' : 'text-blue-700'
+                    }`}>
+                      💡 <strong>Tips Upload:</strong><br/>
+                      • Ukuran maksimal: 5MB<br/>
+                      • Format yang didukung: JPG, PNG, GIF, WebP<br/>
+                      • Gambar akan otomatis diupload ke server<br/>
+                      • Kosongkan untuk menggunakan gambar default
+                    </p>
+                  </div>
                 </div>
               </div>
 
@@ -613,13 +602,8 @@ export default function CreateArticlePage() {
                     darkMode 
                       ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-400' 
                       : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'
-                  } ${
-                    errors.excerpt ? 'border-red-500' : 'focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent'
-                  }`}
+                  } focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent`}
                 />
-                {errors.excerpt && (
-                  <p className="text-red-500 text-sm mt-2">{errors.excerpt}</p>
-                )}
                 <div className="flex justify-between mt-1">
                   <span className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                     Opsional - akan dibuat otomatis dari konten
@@ -661,7 +645,7 @@ export default function CreateArticlePage() {
                   <p className={`text-sm ${
                     darkMode ? 'text-gray-400' : 'text-gray-500'
                   }`}>
-                    💡 Tips: Gunakan baris kosong untuk memisahkan paragraf. Untuk puisi, tulis setiap baris dalam baris terpisah.
+                    💡 Tips: Gunakan baris kosong untuk memisahkan paragraf.
                   </p>
                   <span className={`text-xs ${
                     formData.content.length > 50000 ? 'text-red-500' : darkMode ? 'text-gray-500' : 'text-gray-400'
@@ -683,7 +667,7 @@ export default function CreateArticlePage() {
                   name="tags"
                   value={formData.tags}
                   onChange={handleInputChange}
-                  placeholder="Pisahkan tag dengan koma, contoh: puisi, cinta, alam, inspirasi"
+                  placeholder="Pisahkan tag dengan koma, contoh: teknologi, tutorial, web"
                   className={`w-full px-4 py-3 rounded-lg border transition-colors ${
                     darkMode 
                       ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-400' 
@@ -691,8 +675,8 @@ export default function CreateArticlePage() {
                   } focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent`}
                 />
                 <p className={`text-sm mt-2 ${
-                  darkMode ? 'text-gray-400' : 'text-gray-500'
-                }`}>
+                    darkMode ? 'text-gray-400' : 'text-gray-500'
+                  }`}>
                   💡 Tag membantu karya Anda lebih mudah ditemukan
                 </p>
               </div>
@@ -742,7 +726,7 @@ export default function CreateArticlePage() {
                 </div>
               )}
 
-              {/* Debug Section (Hanya untuk development) */}
+              {/* Debug Section */}
               <div className={`mt-8 p-4 rounded-lg ${
                 darkMode ? 'bg-red-900/20 border border-red-800' : 'bg-red-50 border border-red-200'
               }`}>
@@ -750,40 +734,22 @@ export default function CreateArticlePage() {
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={() => testApiConnection()}
+                    onClick={testApiConnection}
                     className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm"
                   >
-                    Test API Connection
+                    Test API Connection (Port 3002)
                   </button>
                   <button
                     type="button"
                     onClick={() => {
                       console.log('🔍 Current form data:', formData);
                       console.log('👤 Current user:', user);
-                      console.log('🔑 Token:', localStorage.getItem('token'));
-                      console.log('📊 Errors:', errors);
+                      console.log('🔑 Token:', localStorage.getItem('seija_user'));
+                      console.log('🖼️ Image File:', formData.imageFile);
                     }}
                     className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 text-sm"
                   >
                     Log Debug Info
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const token = localStorage.getItem('token');
-                      if (token) {
-                        console.log('🔑 Token details:', token);
-                        try {
-                          const payload = JSON.parse(atob(token.split('.')[1]));
-                          console.log('👤 Token payload:', payload);
-                        } catch (e) {
-                          console.log('❌ Cannot decode token');
-                        }
-                      }
-                    }}
-                    className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm"
-                  >
-                    Decode Token
                   </button>
                 </div>
               </div>
@@ -799,36 +765,50 @@ export default function CreateArticlePage() {
                       <h4 className="font-semibold text-yellow-800 dark:text-yellow-200">Proses Review</h4>
                       <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
                         Karya Anda akan ditinjau terlebih dahulu oleh admin sebelum dipublikasikan. 
-                        Proses ini biasanya memakan waktu 1-2 hari. Anda akan mendapatkan notifikasi ketika karya sudah disetujui.
+                        Anda akan mendapatkan notifikasi ketika karya sudah disetujui.
                       </p>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Form Status */}
-              <div className={`p-4 rounded-lg ${
-                darkMode ? 'bg-blue-900/20 border border-blue-800' : 'bg-blue-50 border border-blue-200'
-              }`}>
-                <div className="flex items-start">
-                  <span className="text-blue-500 mr-2">📝</span>
-                  <div>
-                    <h4 className="font-semibold text-blue-800 dark:text-blue-200">Status Form</h4>
-                    <ul className="text-sm text-blue-700 dark:text-blue-300 mt-1 space-y-1">
-                      <li>✅ Judul: {formData.title ? 'Terisi' : 'Belum diisi'}</li>
-                      <li>✅ Kategori: {formData.category_name ? 'Terpilih' : 'Belum dipilih'}</li>
-                      <li>✅ Konten: {formData.content ? `${formData.content.length} karakter` : 'Belum diisi'}</li>
-                      <li>🖼️ Cover: {formData.cover_image ? 'Ada' : 'Default'}</li>
-                      <li>👤 Penulis: {formData.author_name || user.username}</li>
-                      <li>📋 Status: {user.role === 'admin' ? 'Published langsung' : 'Pending review'}</li>
-                    </ul>
+              {/* Info for admin */}
+              {user.role === 'admin' && (
+                <div className={`p-4 rounded-lg ${
+                  darkMode ? 'bg-green-900/20 border border-green-800' : 'bg-green-50 border border-green-200'
+                }`}>
+                  <div className="flex items-start">
+                    <span className="text-green-500 mr-2">👑</span>
+                    <div>
+                      <h4 className="font-semibold text-green-800 dark:text-green-200">Privilege Admin</h4>
+                      <p className="text-sm text-green-700 dark:text-green-300 mt-1">
+                        Sebagai admin, karya Anda akan langsung dipublikasikan tanpa perlu menunggu review.
+                        Anda juga bisa review dan approve karya dari user lain di dashboard admin.
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </form>
           </motion.div>
         </div>
       </main>
+
+      {/* Footer */}
+      <footer className={`py-8 border-t ${
+        darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'
+      }`}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center">
+            <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+              © 2024 SEIJA Magazine. Platform kreatif siswa SMA Islam Al-Azhar BSD.
+            </p>
+            <p className={`text-xs mt-2 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+              Dibuat dengan ❤️ untuk memajukan literasi digital generasi muda.
+            </p>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

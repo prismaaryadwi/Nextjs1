@@ -1,5 +1,6 @@
-// app/explore/page.tsx
+// app/explore/page.tsx - COMPLETE FIXED VERSION
 "use client";
+
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useAuth } from '../contexts/AuthContext';
@@ -18,58 +19,11 @@ const ExplorePage: React.FC = () => {
     filters,
     updateFilters,
     likeArticle,
-    fetchArticles 
+    categories 
   } = useArticles();
 
-  // Fallback data jika filteredArticles kosong
-  const displayArticles = filteredArticles.length > 0 ? filteredArticles : [
-    {
-      id: 1,
-      title: "Laut",
-      excerpt: "Bayangkan, aku dan kau menikmati deburan ombak Duduk di pasir yang hangat",
-      author_name: "Drupadi Prameswari Ikhwan",
-      category_name: "Puisi",
-      created_at: "2024-01-15T00:00:00.000Z",
-      like_count: 167,
-      comment_count: 31,
-      view_count: 342,
-      cover_image: "/cover/Laut.jpg"
-    },
-    {
-      id: 2,
-      title: "Dirimu",
-      excerpt: "Ketika sang surya telah tenggelam di dalam nisha Dan purnama pun menghiasi malam yang menyiksa",
-      author_name: "Febiana Nur Hidayah",
-      category_name: "Puisi",
-      created_at: "2024-01-12T00:00:00.000Z",
-      like_count: 142,
-      comment_count: 23,
-      view_count: 256,
-      cover_image: "/cover/dirimu.jpeg"
-    },
-    {
-      id: 3,
-      title: "Pohon",
-      excerpt: "Pohon setelah terluka Tak akan menunggu permintaan maaf",
-      author_name: "Raykenzie Nazaru F",
-      category_name: "Puisi",
-      created_at: "2024-01-10T00:00:00.000Z",
-      like_count: 203,
-      comment_count: 42,
-      view_count: 321,
-      cover_image: "/cover/pohon.jpg"
-    }
-  ];
-
-  const categories = [
-    { name: "All", slug: "all", count: displayArticles.length },
-    { name: "Novel", slug: "novel", count: displayArticles.filter(a => a.category_name === "Novel").length },
-    { name: "Cerpen", slug: "cerpen", count: displayArticles.filter(a => a.category_name === "Cerpen").length },
-    { name: "Puisi", slug: "puisi", count: displayArticles.filter(a => a.category_name === "Puisi").length },
-    { name: "Opini", slug: "opini", count: displayArticles.filter(a => a.category_name === "Opini").length },
-    { name: "Desain Grafis", slug: "desain", count: displayArticles.filter(a => a.category_name === "Desain Grafis").length },
-    { name: "Coding Project", slug: "coding", count: displayArticles.filter(a => a.category_name === "Coding Project").length },
-  ];
+  // Use data langsung dari context
+  const displayArticles = filteredArticles;
 
   // Sync search query with filters
   useEffect(() => {
@@ -89,7 +43,7 @@ const ExplorePage: React.FC = () => {
     updateFilters({ sort: sortBy, page: 1 });
   };
 
-  const handleLike = async (articleId: number, e: React.MouseEvent) => {
+  const handleLike = async (articleId: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     
@@ -109,16 +63,6 @@ const ExplorePage: React.FC = () => {
   };
 
   // Helper functions
-  const getAuthorInitials = (article: any) => {
-    const authorName = article.author_name || article.author || 'Anonymous';
-    return authorName
-      .split(' ')
-      .map((n: string) => n[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2);
-  };
-
   const getAuthorName = (article: any) => {
     return article.author_name || article.author || 'Anonymous';
   };
@@ -147,7 +91,7 @@ const ExplorePage: React.FC = () => {
       darkMode ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'
     }`}>
       
-      {/* Navigation Bar - FIXED */}
+      {/* Navigation Bar */}
       <nav className={`fixed top-0 w-full z-50 backdrop-blur-md border-b ${
         darkMode ? 'bg-gray-900/80 border-gray-700' : 'bg-white/80 border-gray-200'
       }`}>
@@ -191,7 +135,7 @@ const ExplorePage: React.FC = () => {
               ))}
             </div>
 
-            {/* Right Section - FIXED */}
+            {/* Right Section */}
             <div className="flex items-center space-x-4">
               {/* Dark Mode Toggle */}
               <button
@@ -203,10 +147,9 @@ const ExplorePage: React.FC = () => {
                 {darkMode ? '☀️' : '🌙'}
               </button>
 
-              {/* Auth Section - FIXED */}
+              {/* Auth Section */}
               {user ? (
                 <div className="flex items-center space-x-3">
-                  {/* Tombol Create untuk semua user yang login */}
                   <Link
                     href="/create"
                     className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:shadow-lg transition-all"
@@ -331,7 +274,7 @@ const ExplorePage: React.FC = () => {
               >
                 {categories.map(category => (
                   <option key={category.slug} value={category.slug}>
-                    {category.name} ({category.count})
+                    {category.name} ({category.article_count})
                   </option>
                 ))}
               </select>
@@ -388,7 +331,7 @@ const ExplorePage: React.FC = () => {
                       <div 
                         className="aspect-[4/3] bg-cover bg-center relative"
                         style={{ 
-                          backgroundImage: `url(${article.cover_image || '/cover/Laut.jpg'})`
+                          backgroundImage: `url(${article.cover_image || '/cover/default.jpg'})`
                         }}
                       >
                         <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-all"></div>
@@ -426,7 +369,6 @@ const ExplorePage: React.FC = () => {
                       <p className={`mb-4 line-clamp-3 ${
                         darkMode ? 'text-gray-300' : 'text-gray-600'
                       }`}>
-                        {/* PERBAIKAN: Hapus akses ke article.content */}
                         {article.excerpt || ''}
                       </p>
 
@@ -462,8 +404,8 @@ const ExplorePage: React.FC = () => {
               animate={{ opacity: 1, y: 0 }}
               className="text-center py-16"
             >
-              <div className="text-6xl mb-4">🔍</div>
-              <h3 className="text-2xl font-bold mb-4">No articles found</h3>
+              <div className="text-6xl mb-4">📄</div>
+              <h3 className="text-2xl font-bold mb-4">No articles yet</h3>
               <p className={`text-lg mb-8 ${
                 darkMode ? 'text-gray-400' : 'text-gray-600'
               }`}>
