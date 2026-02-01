@@ -1,4 +1,4 @@
-// contexts/ArticleContext.tsx - COMPLETE FIXED VERSION
+// contexts/ArticleContext.tsx - COMPLETE FIXED VERSION FOR PRODUCTION
 'use client';
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
@@ -115,49 +115,109 @@ export function ArticleProvider({ children }: { children: ReactNode }) {
     limit: 12
   });
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL 
-    ? `${process.env.NEXT_PUBLIC_API_URL}/api`
-    : 'http://localhost:3002/api';
+  // ==================== API URL CONFIGURATION ====================
+  const getApiUrl = () => {
+    // Use environment variable for production, localhost for development
+    if (typeof window !== 'undefined') {
+      // Client-side: Check if we're in production
+      const isProduction = window.location.hostname !== 'localhost';
+      
+      if (isProduction && process.env.NEXT_PUBLIC_API_URL) {
+        // Production with environment variable
+        return `${process.env.NEXT_PUBLIC_API_URL}/api`;
+      } else if (process.env.NEXT_PUBLIC_API_URL) {
+        // Development with environment variable
+        return `${process.env.NEXT_PUBLIC_API_URL}/api`;
+      }
+    }
+    
+    // Fallback to localhost:3002 for development
+    return 'http://localhost:3002/api';
+  };
 
-  console.log('🌐 ArticleContext initialized');
-  console.log('🔗 API_URL:', API_URL);
-  console.log('🏭 NODE_ENV:', process.env.NODE_ENV);
+  const API_URL = getApiUrl();
 
+  // ==================== UPLOAD IMAGE FUNCTION ====================
   const uploadImage = async (file: File): Promise<string | null> => {
     try {
-      console.log('📤 [UPLOAD IMAGE] Uploading:', file.name);
+      console.log('📤 [UPLOAD IMAGE] Starting upload...');
+      console.log('📁 File:', file.name, 'Size:', Math.round(file.size / 1024), 'KB');
+      console.log('🔗 API URL:', `${API_URL}/upload/image`);
+      
+      // Validate file
+      if (file.size > 10 * 1024 * 1024) { // 10MB max
+        alert('Ukuran file maksimal 10MB');
+        return null;
+      }
       
       const formData = new FormData();
       formData.append('image', file);
       
+      console.log('📤 Sending upload request...');
+      
       const response = await fetch(`${API_URL}/upload/image`, {
         method: 'POST',
         body: formData,
+        // Don't set Content-Type header for FormData, browser will set it automatically
       });
       
-      console.log('📤 [UPLOAD IMAGE] Response status:', response.status);
+      console.log('📤 Upload response status:', response.status);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Upload failed with status:', response.status);
+        console.error('❌ Error response:', errorText);
+        
+        // Try to parse as JSON if possible
+        try {
+          const errorData = JSON.parse(errorText);
+          throw new Error(errorData.message || `Upload failed: ${response.status}`);
+        } catch {
+          throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
+        }
+      }
       
       const data = await response.json();
-      console.log('📤 [UPLOAD IMAGE] Response data:', data);
+      console.log('📤 Upload response data:', data);
       
       if (data.success && data.url) {
-        console.log('✅ [UPLOAD IMAGE] Success! URL:', data.url);
-        return data.url;
+        console.log('✅ Upload successful! URL:', data.url);
+        
+        // If URL is relative, convert to absolute
+        let finalUrl = data.url;
+        if (data.url.startsWith('/')) {
+          // Extract base URL from API_URL
+          const baseUrl = API_URL.replace('/api', '');
+          finalUrl = `${baseUrl}${data.url}`;
+          console.log('🔄 Converted to absolute URL:', finalUrl);
+        }
+        
+        return finalUrl;
       } else {
-        console.error('❌ [UPLOAD IMAGE] Failed:', data.message);
-        alert('Gagal mengupload gambar: ' + (data.message || 'Unknown error'));
-        return null;
+        console.error('❌ API returned error:', data.message);
+        throw new Error(data.message || 'Upload failed');
       }
     } catch (error: any) {
-      console.error('❌ [UPLOAD IMAGE] Error:', error);
-      alert('Gagal mengupload gambar: ' + error.message);
+      console.error('❌ Upload error:', error);
+      console.error('❌ Error stack:', error.stack);
+      
+      // Show user-friendly error message
+      const errorMessage = error.message.includes('NetworkError') || error.message.includes('Failed to fetch')
+        ? 'Gagal terhubung ke server. Cek koneksi internet Anda.'
+        : error.message;
+      
+      alert(`Gagal mengupload gambar: ${errorMessage}`);
       return null;
     }
   };
 
+  // ==================== CREATE ARTICLE ====================
   const createArticle = async (articleData: any): Promise<boolean> => {
     try {
       console.log('📝 [CREATE ARTICLE] Starting...');
+      console.log('🔗 API URL:', API_URL);
+      console.log('🏭 NODE_ENV:', process.env.NODE_ENV);
+      console.log('📡 NEXT_PUBLIC_API_URL:', process.env.NEXT_PUBLIC_API_URL);
       
       const savedUser = localStorage.getItem('seija_user');
       if (!savedUser) {
@@ -166,30 +226,46 @@ export function ArticleProvider({ children }: { children: ReactNode }) {
       }
 
       const user = JSON.parse(savedUser);
-      console.log('📝 [CREATE ARTICLE] User:', user.username);
+      console.log('👤 User:', user.username, 'Role:', user.role);
 
       let coverImageUrl = '/cover/default.jpg';
       
+      // Handle image upload
       if (articleData.imageFile && articleData.imageFile instanceof File) {
-        console.log('🖼️ [CREATE ARTICLE] Found image file, uploading...');
+        console.log('🖼️ Found image file, uploading...');
         const uploadedUrl = await uploadImage(articleData.imageFile);
         if (uploadedUrl) {
           coverImageUrl = uploadedUrl;
-          console.log('✅ [CREATE ARTICLE] Using uploaded image:', coverImageUrl);
+          console.log('✅ Using uploaded image:', coverImageUrl);
         } else {
-          console.warn('⚠️ [CREATE ARTICLE] Upload failed, using default image');
+          console.warn('⚠️ Upload failed, using default image');
+          // Use category-specific default image
+          const category = articleData.category_name || 'Puisi';
+          const defaultImages: Record<string, string> = {
+            'Puisi': '/cover/puisi.jpg',
+            'Novel': '/cover/novel.jpg',
+            'Cerpen': '/cover/cerpen.jpg',
+            'Opini': '/cover/opini.jpg',
+            'Desain Grafis': '/cover/desain.jpg',
+            'Coding Project': '/cover/coding.jpg',
+            'Cerita Bergambar': '/cover/cergam.jpg',
+            'Pantun': '/cover/pantun.jpg'
+          };
+          coverImageUrl = defaultImages[category] || '/cover/default.jpg';
         }
-      } else if (articleData.cover_image && articleData.cover_image !== '' && articleData.cover_image !== '/cover/default.jpg') {
+      } else if (articleData.cover_image && articleData.cover_image !== '') {
         coverImageUrl = articleData.cover_image;
-        console.log('🔗 [CREATE ARTICLE] Using provided image URL:', coverImageUrl);
+        console.log('🔗 Using provided cover image:', coverImageUrl);
       }
 
+      // Calculate read time
       const calculateReadTime = (text: string): number => {
         const words = text.trim().split(/\s+/).length;
         return Math.max(1, Math.ceil(words / 200));
       };
 
-      const formattedData = {
+      // Prepare article data
+      const articlePayload = {
         title: articleData.title || '',
         content: articleData.content || '',
         excerpt: articleData.excerpt || (articleData.content ? articleData.content.substring(0, 150) + '...' : ''),
@@ -202,7 +278,8 @@ export function ArticleProvider({ children }: { children: ReactNode }) {
         read_time: calculateReadTime(articleData.content || '')
       };
 
-      console.log('📤 [CREATE ARTICLE] Sending to API...');
+      console.log('📦 Article payload:', articlePayload);
+      console.log('📤 Sending to API...');
 
       const response = await fetch(`${API_URL}/articles`, {
         method: 'POST',
@@ -210,34 +287,60 @@ export function ArticleProvider({ children }: { children: ReactNode }) {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${savedUser}`
         },
-        body: JSON.stringify(formattedData)
+        body: JSON.stringify(articlePayload)
       });
 
+      console.log('📥 Response status:', response.status);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ API Error:', errorText);
+        
+        try {
+          const errorData = JSON.parse(errorText);
+          throw new Error(errorData.message || `API Error: ${response.status}`);
+        } catch {
+          throw new Error(`API Error: ${response.status} ${response.statusText}`);
+        }
+      }
+
       const data = await response.json();
-      console.log('📤 [CREATE ARTICLE] API Response:', data);
+      console.log('📥 API Response:', data);
 
       if (data.success) {
-        console.log('✅ [CREATE ARTICLE] Article created successfully');
+        console.log('✅ Article created successfully:', data.data?.id);
+        
+        // Refresh articles list
         await fetchArticles();
-        await fetchPendingArticles();
+        
+        // If user is admin, refresh admin articles
+        if (user.role === 'admin') {
+          await fetchPendingArticles();
+          await fetchAdminArticles();
+        }
+        
         return true;
       } else {
-        console.error('❌ [CREATE ARTICLE] API Error:', data.message);
-        alert(`Gagal membuat artikel: ${data.message}`);
-        return false;
+        console.error('❌ API returned error:', data.message);
+        throw new Error(data.message || 'Failed to create article');
       }
     } catch (error: any) {
-      console.error('❌ [CREATE ARTICLE] Error:', error);
-      alert(`Terjadi kesalahan: ${error.message}`);
+      console.error('❌ Create article error:', error);
+      console.error('❌ Error stack:', error.stack);
+      
+      alert(`Gagal membuat artikel: ${error.message}`);
       return false;
     }
   };
 
+  // ==================== FETCH ARTICLES ====================
   const fetchArticles = async (newFilters?: Partial<typeof filters>) => {
     try {
       const finalFilters = { ...filters, ...newFilters, page: newFilters?.page || 1 };
       
-      console.log('📡 [FETCH ARTICLES] Starting fetch...');
+      console.log('📡 [FETCH ARTICLES] Fetching...');
+      console.log('🔗 API URL:', API_URL);
+      console.log('🔧 Filters:', finalFilters);
       
       if (newFilters?.search !== undefined) {
         setSearchLoading(true);
@@ -247,6 +350,7 @@ export function ArticleProvider({ children }: { children: ReactNode }) {
 
       const queryParams = new URLSearchParams();
       
+      // Map category slug to category name
       let categoryName = '';
       if (finalFilters.category && finalFilters.category !== 'all') {
         const foundCategory = DEFAULT_CATEGORIES.find(c => c.slug === finalFilters.category);
@@ -267,65 +371,82 @@ export function ArticleProvider({ children }: { children: ReactNode }) {
       queryParams.append('limit', finalFilters.limit.toString());
       
       const url = `${API_URL}/articles?${queryParams.toString()}`;
-      console.log('📡 [FETCH ARTICLES] API URL:', url);
+      console.log('🌐 Fetching URL:', url);
       
-      const response = await fetch(url);
+      const response = await fetch(url, {
+        cache: 'no-store' // Don't cache for fresh data
+      });
+      
+      console.log('📥 Response status:', response.status);
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       
       const data = await response.json();
+      console.log('📥 Response data count:', data.data?.length || 0);
 
       if (data.success && Array.isArray(data.data)) {
         const loadedArticles = data.data;
-        console.log(`✅ [FETCH ARTICLES] Loaded ${loadedArticles.length} articles`);
+        console.log(`✅ Loaded ${loadedArticles.length} articles`);
         
         setArticles(loadedArticles);
         setFilteredArticles(loadedArticles);
         setFilters(finalFilters);
         
+        // Update category counts
         updateCategoryCounts(loadedArticles);
       } else {
-        console.warn('⚠️ [FETCH ARTICLES] No articles found');
+        console.warn('⚠️ No articles found or invalid response format');
+        console.warn('Response:', data);
         setArticles([]);
         setFilteredArticles([]);
       }
-    } catch (error) {
-      console.error('❌ [FETCH ARTICLES] Error:', error);
+    } catch (error: any) {
+      console.error('❌ Error fetching articles:', error);
+      console.error('❌ Error stack:', error.stack);
+      
+      // Fallback: Show empty state
       setArticles([]);
       setFilteredArticles([]);
+      
+      // Only show error in development
+      if (process.env.NODE_ENV === 'development') {
+        alert(`Error fetching articles: ${error.message}`);
+      }
     } finally {
       setLoading(false);
       setSearchLoading(false);
     }
   };
 
+  // ==================== FETCH ADMIN ARTICLES ====================
   const fetchAdminArticles = async (status?: string) => {
     try {
+      console.log('👑 [FETCH ADMIN ARTICLES] Starting...');
+      
       const savedUser = localStorage.getItem('seija_user');
       if (!savedUser) {
-        console.error('❌ [FETCH ADMIN ARTICLES] No user found in localStorage');
+        console.error('❌ No user found in localStorage');
         return;
       }
 
       const user = JSON.parse(savedUser);
-      console.log('👑 [FETCH ADMIN ARTICLES] User role:', user.role);
+      console.log('👤 User role:', user.role);
       
       if (user.role !== 'admin') {
-        console.warn('⚠️ [FETCH ADMIN ARTICLES] Non-admin trying to access admin articles');
+        console.warn('⚠️ Non-admin trying to access admin articles');
         return;
       }
 
       setAdminLoading(true);
-      console.log('👑 [FETCH ADMIN ARTICLES] Starting...');
 
       let url = `${API_URL}/admin/articles`;
       if (status && status !== 'all') {
         url += `?status=${status}`;
       }
 
-      console.log('👑 [FETCH ADMIN ARTICLES] URL:', url);
+      console.log('🌐 Fetching URL:', url);
 
       const response = await fetch(url, {
         headers: {
@@ -334,48 +455,54 @@ export function ArticleProvider({ children }: { children: ReactNode }) {
         }
       });
 
-      console.log('👑 [FETCH ADMIN ARTICLES] Response status:', response.status);
+      console.log('📥 Response status:', response.status);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
 
       const data = await response.json();
-      console.log('👑 [FETCH ADMIN ARTICLES] Response data:', data);
+      console.log('📥 Response data count:', data.data?.length || 0);
 
       if (data.success && Array.isArray(data.data)) {
-        console.log(`✅ [FETCH ADMIN ARTICLES] Loaded ${data.data.length} articles`);
+        console.log(`✅ Loaded ${data.data.length} admin articles`);
         setAdminArticles(data.data);
       } else {
-        console.warn('⚠️ [FETCH ADMIN ARTICLES] No articles found or API error');
-        console.warn('⚠️ [FETCH ADMIN ARTICLES] API message:', data.message);
+        console.warn('⚠️ No admin articles found');
         setAdminArticles([]);
       }
     } catch (error: any) {
-      console.error('❌ [FETCH ADMIN ARTICLES] Error:', error.message);
+      console.error('❌ Error fetching admin articles:', error);
+      console.error('❌ Error stack:', error.stack);
       setAdminArticles([]);
     } finally {
       setAdminLoading(false);
     }
   };
 
+  // ==================== FETCH PENDING ARTICLES ====================
   const fetchPendingArticles = async () => {
     try {
+      console.log('👑 [FETCH PENDING ARTICLES] Starting...');
+      
       const savedUser = localStorage.getItem('seija_user');
       if (!savedUser) {
-        console.error('❌ [FETCH PENDING] No user found in localStorage');
+        console.error('❌ No user found in localStorage');
         return;
       }
 
       const user = JSON.parse(savedUser);
-      console.log('👑 [FETCH PENDING] User role:', user.role);
+      console.log('👤 User role:', user.role);
       
       if (user.role !== 'admin') {
-        console.warn('⚠️ [FETCH PENDING] Non-admin trying to access pending articles');
+        console.warn('⚠️ Non-admin trying to access pending articles');
         return;
       }
 
       setAdminLoading(true);
-      console.log('👑 [FETCH PENDING] Starting...');
 
       const url = `${API_URL}/admin/articles/pending`;
-      console.log('👑 [FETCH PENDING] URL:', url);
+      console.log('🌐 Fetching URL:', url);
 
       const response = await fetch(url, {
         headers: {
@@ -384,33 +511,41 @@ export function ArticleProvider({ children }: { children: ReactNode }) {
         }
       });
 
-      console.log('👑 [FETCH PENDING] Response status:', response.status);
+      console.log('📥 Response status:', response.status);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
 
       const data = await response.json();
-      console.log('👑 [FETCH PENDING] Response data:', data);
+      console.log('📥 Response data count:', data.data?.length || 0);
 
       if (data.success) {
         if (Array.isArray(data.data)) {
-          console.log(`✅ [FETCH PENDING] Loaded ${data.data.length} pending articles`);
+          console.log(`✅ Loaded ${data.data.length} pending articles`);
           setPendingArticles(data.data);
         } else {
-          console.warn('⚠️ [FETCH PENDING] Data is not an array:', data.data);
+          console.warn('⚠️ Data is not an array:', data.data);
           setPendingArticles([]);
         }
       } else {
-        console.warn('⚠️ [FETCH PENDING] API error:', data.message);
+        console.warn('⚠️ API error:', data.message);
         setPendingArticles([]);
       }
     } catch (error: any) {
-      console.error('❌ [FETCH PENDING] Error:', error.message);
+      console.error('❌ Error fetching pending articles:', error);
+      console.error('❌ Error stack:', error.stack);
       setPendingArticles([]);
     } finally {
       setAdminLoading(false);
     }
   };
 
+  // ==================== UPDATE ARTICLE STATUS ====================
   const updateArticleStatus = async (articleId: string, status: string): Promise<boolean> => {
     try {
+      console.log(`👑 [UPDATE ARTICLE STATUS] Updating ${articleId} to ${status}`);
+      
       const savedUser = localStorage.getItem('seija_user');
       if (!savedUser) {
         alert('Silakan login terlebih dahulu');
@@ -423,8 +558,6 @@ export function ArticleProvider({ children }: { children: ReactNode }) {
         return false;
       }
 
-      console.log(`👑 [UPDATE ARTICLE STATUS] Updating ${articleId} to ${status}`);
-
       const response = await fetch(`${API_URL}/admin/articles/${articleId}/status`, {
         method: 'PUT',
         headers: {
@@ -434,28 +567,42 @@ export function ArticleProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ status })
       });
 
+      console.log('📥 Response status:', response.status);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
       const data = await response.json();
+      console.log('📥 Response:', data);
 
       if (data.success) {
-        console.log(`✅ [UPDATE ARTICLE STATUS] Success: ${data.message}`);
+        console.log(`✅ Status updated successfully: ${data.message}`);
+        
+        // Refresh all data
         await fetchArticles();
         await fetchAdminArticles();
         await fetchPendingArticles();
+        
         return true;
       } else {
-        console.error('❌ [UPDATE ARTICLE STATUS] Failed:', data.message);
+        console.error('❌ API error:', data.message);
         alert(`Gagal mengubah status: ${data.message}`);
         return false;
       }
     } catch (error: any) {
-      console.error('❌ [UPDATE ARTICLE STATUS] Error:', error);
+      console.error('❌ Error updating article status:', error);
+      console.error('❌ Error stack:', error.stack);
       alert(`Terjadi kesalahan: ${error.message}`);
       return false;
     }
   };
 
+  // ==================== BATCH UPDATE STATUS ====================
   const batchUpdateStatus = async (articleIds: string[], status: string): Promise<boolean> => {
     try {
+      console.log(`👑 [BATCH UPDATE] Updating ${articleIds.length} articles to ${status}`);
+      
       const savedUser = localStorage.getItem('seija_user');
       if (!savedUser) {
         alert('Silakan login terlebih dahulu');
@@ -468,8 +615,6 @@ export function ArticleProvider({ children }: { children: ReactNode }) {
         return false;
       }
 
-      console.log(`👑 [BATCH UPDATE STATUS] Updating ${articleIds.length} articles to ${status}`);
-
       const response = await fetch(`${API_URL}/admin/articles/batch-status`, {
         method: 'POST',
         headers: {
@@ -479,26 +624,38 @@ export function ArticleProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ articleIds, status })
       });
 
+      console.log('📥 Response status:', response.status);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
       const data = await response.json();
+      console.log('📥 Response:', data);
 
       if (data.success) {
-        console.log(`✅ [BATCH UPDATE STATUS] Success: ${data.message}`);
+        console.log(`✅ Batch update successful: ${data.message}`);
+        
+        // Refresh all data
         await fetchArticles();
         await fetchAdminArticles();
         await fetchPendingArticles();
+        
         return true;
       } else {
-        console.error('❌ [BATCH UPDATE STATUS] Failed:', data.message);
+        console.error('❌ API error:', data.message);
         alert(`Gagal batch update: ${data.message}`);
         return false;
       }
     } catch (error: any) {
-      console.error('❌ [BATCH UPDATE STATUS] Error:', error);
+      console.error('❌ Error in batch update:', error);
+      console.error('❌ Error stack:', error.stack);
       alert(`Terjadi kesalahan: ${error.message}`);
       return false;
     }
   };
 
+  // ==================== HELPER FUNCTIONS ====================
   const updateCategoryCounts = (articles: Article[]) => {
     const categoryCounts: { [key: string]: number } = {
       'all': articles.length,
@@ -520,30 +677,36 @@ export function ArticleProvider({ children }: { children: ReactNode }) {
     setCategories(updatedCategories);
   };
 
+  // ==================== FETCH SINGLE ARTICLE ====================
   const fetchArticle = async (id: string): Promise<Article | null> => {
     try {
       setLoading(true);
       console.log(`📡 [FETCH ARTICLE] Fetching article ${id}`);
+      console.log(`🔗 URL: ${API_URL}/articles/${id}`);
       
       const response = await fetch(`${API_URL}/articles/${id}`);
+      
+      console.log('📥 Response status:', response.status);
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       
       const data = await response.json();
+      console.log('📥 Response data:', data);
 
       if (data.success && data.data) {
-        console.log(`✅ [FETCH ARTICLE] Loaded:`, data.data.title);
+        console.log(`✅ Loaded article: ${data.data.title}`);
         setCurrentArticle(data.data);
         return data.data;
       } else {
-        console.error(`❌ [FETCH ARTICLE] Article not found`);
+        console.error(`❌ Article not found`);
         setCurrentArticle(null);
         return null;
       }
-    } catch (error) {
-      console.error(`❌ [FETCH ARTICLE] Error:`, error);
+    } catch (error: any) {
+      console.error(`❌ Error fetching article:`, error);
+      console.error('❌ Error stack:', error.stack);
       setCurrentArticle(null);
       return null;
     } finally {
@@ -551,19 +714,25 @@ export function ArticleProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // ==================== FETCH CATEGORIES ====================
   const fetchCategories = async () => {
     try {
-      console.log('📡 [FETCH CATEGORIES] Fetching categories');
+      console.log('📡 [FETCH CATEGORIES] Fetching...');
+      console.log(`🔗 URL: ${API_URL}/categories`);
+      
       const response = await fetch(`${API_URL}/categories`);
+      
+      console.log('📥 Response status:', response.status);
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       
       const data = await response.json();
+      console.log('📥 Response data count:', data.data?.length || 0);
 
       if (data.success && Array.isArray(data.data)) {
-        console.log('✅ [FETCH CATEGORIES] Loaded', data.data.length, 'categories');
+        console.log('✅ Loaded', data.data.length, 'categories');
         const formattedCategories = data.data.map((cat: any) => ({
           id: cat.id,
           name: cat.name,
@@ -572,16 +741,18 @@ export function ArticleProvider({ children }: { children: ReactNode }) {
         }));
         setCategories(formattedCategories);
       }
-    } catch (error) {
-      console.error('❌ [FETCH CATEGORIES] Error:', error);
+    } catch (error: any) {
+      console.error('❌ Error fetching categories:', error);
+      console.error('❌ Error stack:', error.stack);
     }
   };
 
+  // ==================== LIKE ARTICLE ====================
   const likeArticle = async (articleId: string): Promise<boolean> => {
     try {
       const savedUser = localStorage.getItem('seija_user');
       if (!savedUser) {
-        alert('Please login to like articles');
+        alert('Silakan login untuk menyukai artikel');
         return false;
       }
 
@@ -595,11 +766,19 @@ export function ArticleProvider({ children }: { children: ReactNode }) {
         },
       });
 
+      console.log('📥 Response status:', response.status);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
       const data = await response.json();
+      console.log('📥 Response:', data);
 
       if (data.success) {
-        console.log(`✅ [LIKE ARTICLE] Success, liked: ${data.liked}`);
+        console.log(`✅ Like successful, liked: ${data.liked}`);
         
+        // Update local state
         const updateArticleLikes = (article: Article) => {
           return {
             ...article,
@@ -622,21 +801,30 @@ export function ArticleProvider({ children }: { children: ReactNode }) {
         return true;
       }
       return false;
-    } catch (error) {
-      console.error('❌ [LIKE ARTICLE] Error:', error);
+    } catch (error: any) {
+      console.error('❌ Error liking article:', error);
+      console.error('❌ Error stack:', error.stack);
       return false;
     }
   };
 
+  // ==================== COMMENTS ====================
   const fetchComments = async (articleId: string) => {
     try {
       console.log(`💬 [FETCH COMMENTS] Fetching comments for article ${articleId}`);
       
       const response = await fetch(`${API_URL}/articles/${articleId}/comments`);
+      console.log('📥 Response status:', response.status);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
       const data = await response.json();
+      console.log('📥 Response data count:', data.data?.length || 0);
 
       if (data.success) {
-        const comments = data.data;
+        const comments = data.data || [];
         const commentMap = new Map();
         const rootComments: Comment[] = [];
 
@@ -656,10 +844,11 @@ export function ArticleProvider({ children }: { children: ReactNode }) {
         });
 
         setArticleComments(rootComments);
-        console.log(`✅ [FETCH COMMENTS] Loaded ${rootComments.length} root comments`);
+        console.log(`✅ Loaded ${rootComments.length} root comments`);
       }
-    } catch (error) {
-      console.error('❌ [FETCH COMMENTS] Error:', error);
+    } catch (error: any) {
+      console.error('❌ Error fetching comments:', error);
+      console.error('❌ Error stack:', error.stack);
     }
   };
 
@@ -667,7 +856,7 @@ export function ArticleProvider({ children }: { children: ReactNode }) {
     try {
       const savedUser = localStorage.getItem('seija_user');
       if (!savedUser) {
-        alert('Please login to comment');
+        alert('Silakan login untuk berkomentar');
         return false;
       }
 
@@ -682,13 +871,22 @@ export function ArticleProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ content, parent_id: parentId }),
       });
 
+      console.log('📥 Response status:', response.status);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
       const data = await response.json();
+      console.log('📥 Response:', data);
 
       if (data.success) {
-        console.log('✅ [ADD COMMENT] Comment added successfully');
+        console.log('✅ Comment added successfully');
         
+        // Refresh comments
         await fetchComments(articleId);
         
+        // Update comment count
         const updateCommentCount = (article: Article) => {
           if (article.id === articleId) {
             return { ...article, comment_count: article.comment_count + 1 };
@@ -709,17 +907,26 @@ export function ArticleProvider({ children }: { children: ReactNode }) {
         return true;
       }
       return false;
-    } catch (error) {
-      console.error('❌ [ADD COMMENT] Error:', error);
+    } catch (error: any) {
+      console.error('❌ Error adding comment:', error);
+      console.error('❌ Error stack:', error.stack);
       return false;
     }
   };
 
+  // ==================== UPDATE ARTICLE ====================
   const updateArticle = async (articleId: string, updates: any): Promise<boolean> => {
     try {
-      const savedUser = localStorage.getItem('seija_user');
       console.log(`✏️ [UPDATE ARTICLE] Updating article ${articleId}`);
       
+      const savedUser = localStorage.getItem('seija_user');
+      if (!savedUser) {
+        alert('Silakan login terlebih dahulu');
+        return false;
+      }
+
+      console.log('📦 Updates:', updates);
+
       const response = await fetch(`${API_URL}/articles/${articleId}`, {
         method: 'PUT',
         headers: {
@@ -729,25 +936,39 @@ export function ArticleProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify(updates),
       });
 
+      console.log('📥 Response status:', response.status);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
       const data = await response.json();
+      console.log('📥 Response:', data);
 
       if (data.success) {
-        console.log('✅ [UPDATE ARTICLE] Article updated successfully');
+        console.log('✅ Article updated successfully');
         await fetchArticles();
         return true;
       }
       return false;
-    } catch (error) {
-      console.error('❌ [UPDATE ARTICLE] Error:', error);
+    } catch (error: any) {
+      console.error('❌ Error updating article:', error);
+      console.error('❌ Error stack:', error.stack);
       return false;
     }
   };
 
+  // ==================== DELETE ARTICLE ====================
   const deleteArticle = async (articleId: string): Promise<boolean> => {
     try {
-      const savedUser = localStorage.getItem('seija_user');
       console.log(`🗑️ [DELETE ARTICLE] Deleting article ${articleId}`);
       
+      const savedUser = localStorage.getItem('seija_user');
+      if (!savedUser) {
+        alert('Silakan login terlebih dahulu');
+        return false;
+      }
+
       const response = await fetch(`${API_URL}/articles/${articleId}`, {
         method: 'DELETE',
         headers: {
@@ -755,23 +976,35 @@ export function ArticleProvider({ children }: { children: ReactNode }) {
         },
       });
 
+      console.log('📥 Response status:', response.status);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
       const data = await response.json();
+      console.log('📥 Response:', data);
 
       if (data.success) {
-        console.log('✅ [DELETE ARTICLE] Article deleted successfully');
+        console.log('✅ Article deleted successfully');
+        
+        // Refresh all data
         await fetchArticles();
         await fetchAdminArticles();
         await fetchPendingArticles();
+        
         return true;
       }
-      console.error('❌ [DELETE ARTICLE] Failed:', data.message);
+      console.error('❌ Delete failed:', data.message);
       return false;
-    } catch (error) {
-      console.error('❌ [DELETE ARTICLE] Error:', error);
+    } catch (error: any) {
+      console.error('❌ Error deleting article:', error);
+      console.error('❌ Error stack:', error.stack);
       return false;
     }
   };
 
+  // ==================== FILTER FUNCTIONS ====================
   const updateFilters = (newFilters: Partial<typeof filters>) => {
     console.log('🔧 [UPDATE FILTERS] New filters:', newFilters);
     setFilters(prev => ({ ...prev, ...newFilters }));
@@ -788,34 +1021,46 @@ export function ArticleProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  // ==================== INITIALIZATION ====================
   useEffect(() => {
+    console.log('🚀 [ARTICLE CONTEXT] Initializing...');
+    console.log('🔗 API_URL:', API_URL);
+    console.log('🏭 NODE_ENV:', process.env.NODE_ENV);
+    console.log('📡 NEXT_PUBLIC_API_URL:', process.env.NEXT_PUBLIC_API_URL);
+    console.log('🌐 Current host:', typeof window !== 'undefined' ? window.location.hostname : 'SSR');
+    
     const loadInitialData = async () => {
-      console.log('🚀 [INIT] Loading initial data...');
+      console.log('📦 Loading initial data...');
       await fetchArticles();
       await fetchCategories();
       
       const savedUser = localStorage.getItem('seija_user');
       if (savedUser) {
-        const user = JSON.parse(savedUser);
-        console.log('👤 [INIT] Current user role:', user.role);
-        
-        if (user.role === 'admin') {
-          console.log('👑 [INIT] Loading admin data...');
-          await fetchPendingArticles();
-          await fetchAdminArticles();
+        try {
+          const user = JSON.parse(savedUser);
+          console.log('👤 Current user role:', user.role);
+          
+          if (user.role === 'admin') {
+            console.log('👑 Loading admin data...');
+            await fetchPendingArticles();
+            await fetchAdminArticles();
+          }
+        } catch (error) {
+          console.error('❌ Error parsing user data:', error);
         }
       }
       
-      console.log('✅ [INIT] Initial data loaded');
+      console.log('✅ Initial data loaded');
     };
 
     loadInitialData();
   }, []);
 
+  // Fetch articles when filters change
   useEffect(() => {
     const fetchWithFilters = async () => {
       if (!loading) {
-        console.log('🔄 [FILTER CHANGE] Filters changed, fetching articles...');
+        console.log('🔄 [FILTER CHANGE] Fetching articles with new filters...');
         await fetchArticles();
       }
     };
@@ -823,6 +1068,7 @@ export function ArticleProvider({ children }: { children: ReactNode }) {
     fetchWithFilters();
   }, [filters.search, filters.category, filters.sort, filters.page]);
 
+  // ==================== CONTEXT VALUE ====================
   const value: ArticleContextType = {
     articles,
     filteredArticles,
