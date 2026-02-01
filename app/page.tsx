@@ -173,7 +173,7 @@ const App: React.FC = () => {
                 </div>
                 <div>
                   <h1 className="text-xl font-bold bg-blue-600 bg-clip-text text-transparent">
-                    SEIJA
+                    SIJA
                   </h1>
                   <p className="text-xs text-gray-500">MAGAZINE</p>
                 </div>
