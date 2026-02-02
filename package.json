@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "node start-server.js",
-    "start:standalone": "node .next/standalone/server.js",
+    "start": "node .next/standalone/server.js",
+    "start:dev": "concurrently \"next dev\" \"node server-railway.js\"",
+    "start:api": "node server-railway.js",
     "lint": "next lint"
   },
   "engines": {

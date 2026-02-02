@@ -1,57 +1,63 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { writeFile } from 'fs/promises'
-import path from 'path'
-import fs from 'fs'
+// app/api/upload/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData()
-    const file = formData.get('image') as File
+    const formData = await request.formData();
+    const file = formData.get('image') as File;
     
     if (!file) {
       return NextResponse.json(
-        { success: false, message: 'Tidak ada file' },
+        { success: false, message: 'Tidak ada file yang diupload' },
         { status: 400 }
-      )
+      );
     }
     
-    const bytes = await file.arrayBuffer()
-    const buffer = Buffer.from(bytes)
+    // Supabase config
+    const supabaseUrl = process.env.SUPABASE_URL!;
+    const supabaseKey = process.env.SUPABASE_KEY!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
     
-    const timestamp = Date.now()
-    const random = Math.floor(Math.random() * 10000)
-    const ext = path.extname(file.name) || '.jpg'
-    const filename = `seija_${timestamp}_${random}${ext}`
+    const timestamp = Date.now();
+    const random = Math.floor(Math.random() * 10000);
+    const ext = file.name.split('.').pop() || 'jpg';
+    const filename = `seija_${timestamp}_${random}.${ext}`;
+    const filePath = `uploads/${filename}`;
     
-    const uploadDir = path.join(process.cwd(), 'public', 'uploads')
+    const buffer = await file.arrayBuffer();
     
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true })
+    // Upload to Supabase Storage
+    const { data, error } = await supabase.storage
+      .from('seija-files')
+      .upload(filePath, buffer, {
+        contentType: file.type,
+        cacheControl: '3600',
+        upsert: false
+      });
+    
+    if (error) {
+      console.error('Supabase upload error:', error);
+      throw error;
     }
     
-    const filepath = path.join(uploadDir, filename)
-    await writeFile(filepath, buffer)
-    
-    const fileUrl = `/uploads/${filename}`
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from('seija-files')
+      .getPublicUrl(filePath);
     
     return NextResponse.json({
       success: true,
-      message: 'Upload berhasil',
-      url: fileUrl,
+      message: 'Gambar berhasil diupload',
+      url: urlData.publicUrl,
       filename: filename
-    })
+    });
     
   } catch (error) {
-    console.error('Upload error:', error)
+    console.error('Upload error:', error);
     return NextResponse.json(
-      { success: false, message: 'Upload gagal' },
+      { success: false, message: 'Gagal mengupload gambar' },
       { status: 500 }
-    )
+    );
   }
-}
-
-export const config = {
-  api: {
-    bodyParser: false,
-  },
 }

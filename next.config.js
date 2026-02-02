@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'standalone', // INI PENTING!
+  output: 'standalone',
   reactStrictMode: true,
   swcMinify: true,
   images: {
@@ -32,9 +32,27 @@ const nextConfig = {
       }
     ],
   },
-  // Add this for Railway
-  experimental: {
-    outputFileTracingRoot: process.cwd(),
+  // Proxy API requests to separate server in development
+  async rewrites() {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+    
+    // Jika di production, gunakan URL Railway
+    if (process.env.NODE_ENV === 'production') {
+      return [
+        {
+          source: '/api/:path*',
+          destination: `${apiUrl}/api/:path*`,
+        }
+      ]
+    }
+    
+    // Jika di development, proxy ke localhost:3001
+    return [
+      {
+        source: '/api/:path*',
+        destination: 'http://localhost:3001/api/:path*',
+      }
+    ]
   }
 }
 
