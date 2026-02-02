@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: 'standalone',
   reactStrictMode: true,
   swcMinify: true,
   images: {
@@ -23,19 +24,23 @@ const nextConfig = {
         protocol: 'http',
         hostname: 'localhost',
         pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'railway.app',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: '*.up.railway.app',
+        pathname: '/**',
       }
     ],
   },
-  async rewrites() {
-    return [
-      {
-        source: '/api/:path*',
-        destination: '/api/:path*',
-      },
-    ]
-  },
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002',
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   }
 }
 

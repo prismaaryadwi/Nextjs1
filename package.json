@@ -6,10 +6,10 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "node server.js",
+    "start:next": "next start",
     "lint": "next lint",
-    "api": "node server.js",
-    "dev:all": "concurrently \"npm run dev\" \"npm run api\""
+    "dev:all": "concurrently \"next dev\" \"node server.js\""
   },
   "engines": {
     "node": ">=18.0.0",

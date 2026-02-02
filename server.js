@@ -1,4 +1,4 @@
-// server.js - COMPLETE VERSION WITH ADMIN ENDPOINTS
+// server.js - VERSION FOR RAILWAY DEPLOYMENT
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -11,11 +11,11 @@ const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 3002;
 
-console.log('🚀 SEIJA Magazine API Server');
+console.log('🚀 SEIJA Magazine API Server - Railway Ready');
 console.log('📦 Mode:', process.env.NODE_ENV || 'development');
 console.log('🔧 PORT:', PORT);
 
-// ==================== CORS CONFIGURATION ====================
+// ==================== CORS CONFIGURATION FOR RAILWAY ====================
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:3001',
@@ -23,17 +23,20 @@ const allowedOrigins = [
   'https://seijamagazine.site',
   'https://www.seijamagazine.site',
   'https://seijamagazine.vercel.app',
-  'https://seija-magazine.vercel.app'
+  'https://seija-magazine.vercel.app',
+  /\.railway\.app$/,
+  /\.vercel\.app$/
 ];
 
 const corsOptions = {
   origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
+    // Check against allowed origins
     const isAllowed = allowedOrigins.some(allowedOrigin => {
-      if (allowedOrigin.includes('*')) {
-        const domain = allowedOrigin.replace('*.', '');
-        return origin.endsWith(domain);
+      if (allowedOrigin instanceof RegExp) {
+        return allowedOrigin.test(origin);
       }
       return origin === allowedOrigin;
     });
@@ -60,13 +63,13 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Logging middleware
 app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} - ${req.ip}`);
   next();
 });
 
 // ==================== SUPABASE CONFIG ====================
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://mfymrinerlgzygnoimve.supabase.co';
-const SUPABASE_KEY = process.env.SUPABASE_KEY || 'sb_publishable_nECRhfJNuXfovy-0-V5Crg_NUCRSZic';
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://mfymrinerlgzygnoimve.supabase.co';
+const SUPABASE_KEY = process.env.SUPABASE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_nECRhfJNuXfovy-0-V5Crg_NUCRSZic';
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 console.log('📊 Supabase connected:', SUPABASE_URL);
@@ -156,14 +159,89 @@ const calculateReadTime = (content) => {
   return Math.max(1, Math.ceil(words / wordsPerMinute));
 };
 
-// ==================== UPLOAD ENDPOINT ====================
+// ==================== UPLOAD ENDPOINT - MODIFIED FOR RAILWAY ====================
 const storage = multer.memoryStorage();
 const upload = multer({
   storage: storage,
   limits: { fileSize: 10 * 1024 * 1024 }
 });
 
+// Upload to Supabase Storage (Recommended for Railway)
 app.post('/api/upload/image', upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tidak ada file yang diupload'
+      });
+    }
+    
+    // Upload to Supabase Storage
+    const timestamp = Date.now();
+    const random = Math.floor(Math.random() * 10000);
+    const ext = path.extname(req.file.originalname).toLowerCase() || '.jpg';
+    const filename = `seija_${timestamp}_${random}${ext}`;
+    const filePath = `uploads/${filename}`;
+    
+    // Upload to Supabase Storage
+    const { data, error } = await supabase.storage
+      .from('seija-files') // Make sure this bucket exists in Supabase
+      .upload(filePath, req.file.buffer, {
+        contentType: req.file.mimetype,
+        cacheControl: '3600',
+        upsert: false
+      });
+    
+    if (error) {
+      console.error('Supabase upload error:', error);
+      
+      // Fallback: Save locally (for Railway Volume if configured)
+      try {
+        const uploadDir = path.join(__dirname, 'public', 'uploads');
+        if (!fs.existsSync(uploadDir)) {
+          fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        
+        const localFilePath = path.join(uploadDir, filename);
+        fs.writeFileSync(localFilePath, req.file.buffer);
+        
+        const fileUrl = `/uploads/${filename}`;
+        
+        return res.json({
+          success: true,
+          message: 'Gambar berhasil diupload (local storage)',
+          url: fileUrl,
+          filename: filename
+        });
+      } catch (localError) {
+        console.error('Local upload error:', localError);
+        throw error;
+      }
+    }
+    
+    // Get public URL from Supabase
+    const { data: urlData } = supabase.storage
+      .from('seija-files')
+      .getPublicUrl(filePath);
+    
+    res.json({
+      success: true,
+      message: 'Gambar berhasil diupload ke cloud',
+      url: urlData.publicUrl,
+      filename: filename
+    });
+    
+  } catch (error) {
+    console.error('Upload error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Gagal mengupload gambar'
+    });
+  }
+});
+
+// For backward compatibility with existing uploads
+app.post('/api/upload/image-local', upload.single('image'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -177,7 +255,11 @@ app.post('/api/upload/image', upload.single('image'), async (req, res) => {
     const ext = path.extname(req.file.originalname).toLowerCase() || '.jpg';
     const filename = `seija_${timestamp}_${random}${ext}`;
     
-    const uploadDir = path.join(__dirname, 'public', 'uploads');
+    // Use Railway Volume path or local path
+    const uploadDir = process.env.RAILWAY_VOLUME_PATH 
+      ? path.join(process.env.RAILWAY_VOLUME_PATH, 'uploads')
+      : path.join(__dirname, 'public', 'uploads');
+    
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
     }
@@ -185,17 +267,22 @@ app.post('/api/upload/image', upload.single('image'), async (req, res) => {
     const filePath = path.join(uploadDir, filename);
     fs.writeFileSync(filePath, req.file.buffer);
     
-    const fileUrl = `/uploads/${filename}`;
+    // Construct URL
+    const baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN 
+      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+      : '';
+    const fileUrl = `${baseUrl}/uploads/${filename}`;
     
     res.json({
       success: true,
       message: 'Gambar berhasil diupload',
-      url: fileUrl,
+      url: `/uploads/${filename}`,
+      absoluteUrl: fileUrl,
       filename: filename
     });
     
   } catch (error) {
-    console.error('Upload error:', error);
+    console.error('Local upload error:', error);
     res.status(500).json({
       success: false,
       message: 'Gagal mengupload gambar'
@@ -203,11 +290,18 @@ app.post('/api/upload/image', upload.single('image'), async (req, res) => {
   }
 });
 
-// Serve static files
-app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
-app.use('/cover', express.static(path.join(__dirname, 'public/cover')));
+// Serve static files from Railway Volume if exists
+const staticDir = process.env.RAILWAY_VOLUME_PATH 
+  ? path.join(process.env.RAILWAY_VOLUME_PATH, 'public')
+  : path.join(__dirname, 'public');
 
-// Create directories
+if (fs.existsSync(staticDir)) {
+  app.use('/uploads', express.static(path.join(staticDir, 'uploads')));
+  app.use('/cover', express.static(path.join(staticDir, 'cover')));
+  console.log('📁 Serving static files from:', staticDir);
+}
+
+// Create directories if they don't exist
 ['public/uploads', 'public/cover'].forEach(dir => {
   const dirPath = path.join(__dirname, dir);
   if (!fs.existsSync(dirPath)) {
@@ -219,8 +313,10 @@ app.use('/cover', express.static(path.join(__dirname, 'public/cover')));
 app.get('/api/health', (req, res) => {
   res.json({
     success: true,
-    message: 'SEIJA Magazine API is running',
-    timestamp: new Date().toISOString()
+    message: 'SEIJA Magazine API is running on Railway',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV,
+    port: PORT
   });
 });
 
@@ -273,9 +369,8 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
     
-    // Untuk development, bypass password check jika belum ada hash
-    // Di production, gunakan bcrypt.compare
-    const passwordValid = true; // Temporary for development
+    // Verify password
+    const passwordValid = bcrypt.compareSync(password, user.password_hash);
     
     if (!passwordValid) {
       return res.status(401).json({
@@ -854,7 +949,8 @@ app.get('/api/statistics', async (req, res) => {
     // Get total articles
     const { count: totalArticles } = await supabase
       .from('articles')
-      .select('*', { count: 'exact', head: true });
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'published');
     
     // Get total users
     const { count: totalUsers } = await supabase
@@ -865,6 +961,7 @@ app.get('/api/statistics', async (req, res) => {
     const { data: recentArticles } = await supabase
       .from('articles')
       .select('*')
+      .eq('status', 'published')
       .order('created_at', { ascending: false })
       .limit(5);
     
@@ -902,8 +999,6 @@ app.get('/api/statistics', async (req, res) => {
 });
 
 // ==================== ADMIN ENDPOINTS ====================
-
-// Get all articles for admin
 app.get('/api/admin/articles', authenticate, adminOnly, async (req, res) => {
   try {
     const { status = 'all' } = req.query;
@@ -943,7 +1038,6 @@ app.get('/api/admin/articles', authenticate, adminOnly, async (req, res) => {
   }
 });
 
-// Get pending articles only
 app.get('/api/admin/articles/pending', authenticate, adminOnly, async (req, res) => {
   try {
     console.log('👑 [ADMIN] Fetching pending articles');
@@ -976,7 +1070,6 @@ app.get('/api/admin/articles/pending', authenticate, adminOnly, async (req, res)
   }
 });
 
-// Update article status (approve/reject)
 app.put('/api/admin/articles/:id/status', authenticate, adminOnly, async (req, res) => {
   try {
     const { id } = req.params;
@@ -1035,7 +1128,6 @@ app.put('/api/admin/articles/:id/status', authenticate, adminOnly, async (req, r
   }
 });
 
-// Batch update status
 app.post('/api/admin/articles/batch-status', authenticate, adminOnly, async (req, res) => {
   try {
     const { articleIds, status } = req.body;
@@ -1085,7 +1177,6 @@ app.post('/api/admin/articles/batch-status', authenticate, adminOnly, async (req
   }
 });
 
-// Get admin statistics
 app.get('/api/admin/statistics', authenticate, adminOnly, async (req, res) => {
   try {
     // Total articles by status
@@ -1136,27 +1227,51 @@ app.get('/api/admin/statistics', authenticate, adminOnly, async (req, res) => {
 
 // ==================== ERROR HANDLING ====================
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error('❌ Server Error:', err.stack);
   res.status(500).json({
     success: false,
-    message: 'Terjadi kesalahan pada server'
+    message: 'Terjadi kesalahan pada server',
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined
   });
 });
 
 app.use((req, res) => {
   res.status(404).json({
     success: false,
-    message: 'Endpoint tidak ditemukan'
+    message: 'Endpoint tidak ditemukan',
+    path: req.originalUrl
   });
 });
 
 // ==================== START SERVER ====================
+// Listen on all network interfaces for Railway
 const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n✅ SEIJA Magazine API Server running`);
+  console.log('\n' + '='.repeat(50));
+  console.log('✅ SEIJA Magazine API Server - Railway Ready');
   console.log(`🌐 URL: http://0.0.0.0:${PORT}`);
   console.log(`📡 Health: http://0.0.0.0:${PORT}/api/health`);
+  console.log(`📦 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log('='.repeat(50) + '\n');
 });
 
 server.on('error', (error) => {
   console.error('❌ Server error:', error);
+  process.exit(1);
+});
+
+// Handle graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received. Shutting down gracefully...');
+  server.close(() => {
+    console.log('Server closed.');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received. Shutting down gracefully...');
+  server.close(() => {
+    console.log('Server closed.');
+    process.exit(0);
+  });
 });
